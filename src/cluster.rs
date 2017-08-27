@@ -2,6 +2,9 @@
 //! functionality of connection pools. To get more details about creating r2d2 pools
 //! please refer to original documentation.
 use std::iter::Iterator;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::net::SocketAddr;
+
 use query::QueryBuilder;
 use client::{CDRS, Session};
 use error::{Error as CError, Result as CResult};
@@ -10,7 +13,6 @@ use compression::Compression;
 use r2d2;
 use transport::CDRSTransport;
 use rand;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Load balancing strategy
 #[derive(PartialEq)]
@@ -84,6 +86,16 @@ impl<T> LoadBalancer<T> {
         }
         next
     }
+
+    /// It adds new node to the list of cluster nodes
+    pub fn add_node(&mut self, node: T) {
+        self.nodes.push(node)
+    }
+
+    /// It removes a node with a given position
+    pub fn remove_node(&mut self, position: usize) -> T {
+        self.nodes.remove(position)
+    }
 }
 
 /// [r2d2](https://github.com/sfackler/r2d2) `ManageConnection`.
@@ -106,6 +118,31 @@ impl<T, X> ClusterConnectionManager<T, X>
             load_balancer: load_balancer,
             authenticator: authenticator,
             compression: compression,
+        }
+    }
+}
+
+impl<T, X: CDRSTransport> ClusterConnectionManager<T, X> {
+    /// This method allows to add new node to `ClusterConnectionManager`,
+    /// so this node will be involved into load balancing process.
+    pub fn add_node(&mut self, node: X) {
+        self.load_balancer.add_node(node);
+    }
+
+    /// This method removes a node by provided address from `ClusterConnectionManager`.
+    pub fn remove_node<A: Into<SocketAddr>>(&mut self, addr: A) -> Option<X> {
+        let socket_addr = addr.into();
+        self.load_balancer
+            .nodes
+            .iter()
+            .position(|node| self.is_same(socket_addr, node))
+            .map(|position| self.load_balancer.remove_node(position))
+    }
+
+    fn is_same(&self, addr: SocketAddr, node: &X) -> bool {
+        match node.local_addr() {
+            Ok(a) => a == addr,
+            _ => false,
         }
     }
 }

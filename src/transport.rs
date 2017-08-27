@@ -29,7 +29,7 @@
 use std::io;
 use std::io::{Read, Write};
 use std::net;
-use std::net::TcpStream;
+use std::net::{TcpStream, SocketAddr};
 use std::time::Duration;
 #[cfg(feature = "ssl")]
 use openssl::ssl::{SslStream, SslConnector};
@@ -55,6 +55,8 @@ pub trait CDRSTransport: Sized + Read + Write + Send + Sync {
     /// If the value specified is None, then read() calls will block indefinitely.
     /// It is an error to pass the zero Duration to this method.
     fn set_timeout(&mut self, dur: Option<Duration>) -> io::Result<()>;
+
+    fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 
 /// Default Tcp transport.
@@ -107,6 +109,10 @@ impl CDRSTransport for TransportTcp {
         self.tcp
             .set_read_timeout(dur)
             .and_then(|_| self.tcp.set_write_timeout(dur))
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.tcp.local_addr()
     }
 }
 
@@ -192,5 +198,9 @@ impl CDRSTransport for TransportTls {
         stream
             .set_read_timeout(dur)
             .and_then(|_| stream.set_write_timeout(dur))
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.ssl.get_ref().local_addr()
     }
 }
